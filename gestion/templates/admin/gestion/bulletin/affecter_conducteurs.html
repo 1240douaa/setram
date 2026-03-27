@@ -1,0 +1,99 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Affecter conducteur — SETRAM{% endblock %}
+
+{% block content %}
+<div style="max-width:700px">
+
+  <h1 style="margin-bottom:20px">Affecter un conducteur aux bulletins</h1>
+
+  {% if bulletins %}
+  <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:16px;margin-bottom:20px">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#555">
+      Bulletins sélectionnés ({{ bulletins|length }})
+    </h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#f5f5f5">
+          <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #ddd">N°</th>
+          <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #ddd">Type</th>
+          <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #ddd">Début</th>
+          <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #ddd">Fin</th>
+          <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #ddd">Courses</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bulletins %}
+        <tr style="border-bottom:1px solid #eee">
+          <td style="padding:6px 10px"><strong>{{ b.numero }}</strong></td>
+          <td style="padding:6px 10px">
+            {% if b.type_jour == 'JO' %}
+              <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 3px; font-size: 11px;">
+                {{ b.type_jour }}
+              </span>
+            {% else %}
+              <span style="background: #f3e5f5; padding: 2px 8px; border-radius: 3px; font-size: 11px;">
+                {{ b.type_jour }}
+              </span>
+            {% endif %}
+          </td>
+          <td style="padding:6px 10px">{{ b.heure_debut }}</td>
+          <td style="padding:6px 10px">{{ b.heure_fin }}</td>
+          <td style="padding:6px 10px">{{ b.courses.count }} course(s)</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="background:#fff3e0;border-left:4px solid #ff9800;padding:12px 16px;border-radius:4px;margin-bottom:20px">
+    Aucun bulletin sélectionné.
+  </div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="bulletins" value="{{ ids_str }}">
+
+    <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:20px;margin-bottom:16px">
+      <h3 style="margin:0 0 16px;font-size:14px">Paramètres d'affectation</h3>
+
+      {% for field in form %}
+        <div style="margin-bottom:16px">
+          <label for="{{ field.id_for_label }}"
+                 style="display:block;font-weight:bold;margin-bottom:4px;font-size:13px">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% if field.help_text %}
+            <p style="color:#666;font-size:12px;margin-top:4px">{{ field.help_text }}</p>
+          {% endif %}
+          {% for error in field.errors %}
+            <p style="color:#e74c3c;font-size:12px">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div style="background:#e8f5e9;border-left:4px solid #4caf50;padding:10px 14px;
+                border-radius:4px;margin-bottom:16px;font-size:13px">
+      Le conducteur sera affecté à <strong>{{ bulletins|length }} bulletin(s)</strong>
+      pour la date sélectionnée. Une notification lui sera envoyée automatiquement.
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center">
+      <button type="submit"
+              style="background:#1565c0;color:#fff;border:none;padding:10px 24px;
+                     border-radius:4px;font-size:14px;cursor:pointer;font-weight:bold">
+        Confirmer l'affectation
+      </button>
+      <a href="{% url 'admin:gestion_bulletin_changelist' %}"
+         style="color:#666;text-decoration:none">
+        Annuler
+      </a>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

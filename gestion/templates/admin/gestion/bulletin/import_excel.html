@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Importer Excel — SETRAM{% endblock %}
+
+{% block content %}
+<div style="max-width:600px">
+
+  <h1 style="margin-bottom:20px">
+    Importer les bulletins depuis Excel
+  </h1>
+
+  <div style="background:#e8f4f8;border-left:4px solid #2196F3;padding:12px 16px;margin-bottom:24px;border-radius:4px">
+    <strong>Format attendu :</strong> Fichier <code>.xlsx</code> des bulletins de conduite SETRAM.<br>
+    Feuilles reconnues : <strong>JO</strong> (Jours Ouvrables) et <strong>JS et JV</strong> (Samedis/Vendredis).<br>
+    Structure : 7 colonnes × 10 lignes = 70 services par feuille.
+  </div>
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:20px;margin-bottom:16px">
+      {% for field in form %}
+        <div style="margin-bottom:16px">
+          <label for="{{ field.id_for_label }}" style="display:block;font-weight:bold;margin-bottom:4px">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% if field.help_text %}
+            <p style="color:#666;font-size:12px;margin-top:4px">{{ field.help_text }}</p>
+          {% endif %}
+          {% for error in field.errors %}
+            <p style="color:#e74c3c;font-size:12px">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center">
+      <button type="submit"
+              style="background:#2e7d32;color:#fff;border:none;padding:10px 24px;
+                     border-radius:4px;font-size:14px;cursor:pointer;font-weight:bold">
+        Importer le fichier Excel
+      </button>
+      <a href="{% url 'admin:gestion_bulletin_changelist' %}"
+         style="color:#666;text-decoration:none">
+        Annuler
+      </a>
+    </div>
+  </form>
+
+</div>
+{% endblock %}
