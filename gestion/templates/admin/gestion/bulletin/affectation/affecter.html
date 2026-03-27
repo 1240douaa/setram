@@ -1,0 +1,258 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Affecter les conducteurs aux services{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Accueil</a> &rsaquo;
+  <a href="{% url 'admin:gestion_affectation_changelist' %}">Affectations</a> &rsaquo;
+  Affecter les conducteurs
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>Affecter les conducteurs aux services</h1>
+
+{% if messages %}
+  <style>
+    .message-alert {
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      border-radius: 4px;
+    }
+    .message-alert.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .message-alert.warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffc107;
+    }
+    .message-alert.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+  {% for message in messages %}
+    <div class="message-alert {% if 'success' in message.tags %}success{% elif 'warning' in message.tags %}warning{% else %}error{% endif %}">
+      {{ message }}
+    </div>
+  {% endfor %}
+{% endif %}
+
+{% if rapport %}
+<div style="background:#e8f4fd;border:1px solid #b8daff;border-radius:6px;
+            padding:16px;margin-bottom:24px;">
+  <strong>Rapport — {{ rapport.date }}</strong>
+  <table style="margin-top:10px;border-collapse:collapse;">
+    <tr>
+      <td style="padding:3px 16px 3px 0;color:#555;">Affectations enregistrées</td>
+      <td style="color:#155724;font-weight:bold;">{{ rapport.nb_ok }}</td>
+    </tr>
+    <tr>
+      <td style="padding:3px 16px 3px 0;color:#555;">Conducteurs sans service (ignorés)</td>
+      <td style="color:#856404;font-weight:bold;">{{ rapport.nb_skip }}</td>
+    </tr>
+    {% if rapport.erreurs %}
+    <tr>
+      <td style="padding:3px 16px 3px 0;color:#721c24;">Erreurs</td>
+      <td style="color:#721c24;font-weight:bold;">{{ rapport.erreurs|length }}</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% if rapport.erreurs %}
+  <div style="margin-top:10px;padding:10px;background:#f8d7da;
+              border-radius:4px;font-size:13px;color:#721c24;">
+    {% for e in rapport.erreurs %}<div>&#9679; {{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not bulletins_jo and not bulletins_jsjv %}
+<div style="padding:20px;background:#fff3cd;border:1px solid #ffc107;
+            border-radius:6px;margin-bottom:20px;">
+  <strong>Aucun bulletin disponible.</strong>
+  Veuillez d'abord
+  <a href="{% url 'admin:gestion_bulletin_import_excel' %}">importer le fichier Excel</a>.
+</div>
+{% else %}
+
+<form method="post">
+  {% csrf_token %}
+
+  <!-- Date et type de jour -->
+  <div style="display:flex;gap:20px;margin-bottom:24px;flex-wrap:wrap;">
+    <div style="background:white;padding:16px;border:1px solid #dee2e6;
+                border-radius:6px;flex:1;min-width:200px;">
+      <label style="display:block;font-weight:bold;margin-bottom:8px;">
+        Date du service *
+      </label>
+      <input type="date" name="date_service" value="{{ today }}" required
+             style="width:100%;padding:8px;border:1px solid #ced4da;
+                    border-radius:4px;font-size:14px;box-sizing:border-box;">
+    </div>
+    <div style="background:white;padding:16px;border:1px solid #dee2e6;
+                border-radius:6px;flex:1;min-width:200px;">
+      <label style="display:block;font-weight:bold;margin-bottom:8px;">
+        Type de jour
+      </label>
+      <select name="type_jour" id="type_jour"
+              style="width:100%;padding:8px;border:1px solid #ced4da;
+                     border-radius:4px;font-size:14px;"
+              onchange="filtrerBulletins(this.value)">
+        <option value="JO">Jour Ouvrable (JO)</option>
+        <option value="JS_JV">Samedi / Vendredi (JS-JV)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Tableau conducteurs / services -->
+  <div style="background:white;border:1px solid #dee2e6;border-radius:6px;
+              overflow:hidden;margin-bottom:20px;">
+    <div style="background:#417690;color:white;padding:12px 16px;
+                display:flex;justify-content:space-between;align-items:center;">
+      <strong>Affectation des conducteurs</strong>
+      <span style="font-size:13px;opacity:0.85;">
+        {{ conducteurs|length }} conducteur(s)
+      </span>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="background:#f2f2f2;border-bottom:2px solid #dee2e6;">
+          <th style="padding:10px 16px;text-align:left;font-size:13px;width:50px;">#</th>
+          <th style="padding:10px 16px;text-align:left;font-size:13px;">Conducteur</th>
+          <th style="padding:10px 16px;text-align:left;font-size:13px;">Matricule</th>
+          <th style="padding:10px 16px;text-align:left;font-size:13px;min-width:220px;">
+            N° de service
+          </th>
+          <th style="padding:10px 16px;text-align:left;font-size:13px;">Horaire</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for conducteur in conducteurs %}
+        <tr style="border-bottom:1px solid #f0f0f0;{% if forloop.counter|divisibleby:2 %}background:white;{% else %}background:#fafafa;{% endif %}">
+          <td style="padding:10px 16px;color:#999;font-size:12px;">
+            {{ forloop.counter }}
+          </td>
+          <td style="padding:10px 16px;font-weight:500;">
+            {{ conducteur.nom }} {{ conducteur.prenom }}
+          </td>
+          <td style="padding:10px 16px;font-family:monospace;
+                     color:#417690;font-size:13px;">
+            {{ conducteur.matricule }}
+          </td>
+          <td style="padding:10px 16px;">
+            <!-- Liste JO -->
+            <select name="bulletin_{{ conducteur.id }}"
+                    class="sel-jo"
+                    data-idx="{{ forloop.counter }}"
+                    style="width:100%;padding:6px 8px;border:1px solid #ced4da;
+                           border-radius:4px;font-size:13px;"
+                    onchange="majHoraire(this)">
+              <option value="">-- Pas de service --</option>
+              {% for b in bulletins_jo %}
+              <option value="{{ b.id }}"
+                      data-debut="{{ b.heure_debut }}"
+                      data-fin="{{ b.heure_fin }}">
+                Service {{ b.numero|stringformat:"02d" }}
+                &nbsp;({{ b.heure_debut }} → {{ b.heure_fin }})
+              </option>
+              {% endfor %}
+            </select>
+            <!-- Liste JS/JV (masquée par défaut) -->
+            <select name="bulletin_{{ conducteur.id }}"
+                    class="sel-jsjv"
+                    data-idx="{{ forloop.counter }}"
+                    style="width:100%;padding:6px 8px;border:1px solid #ced4da;
+                           border-radius:4px;font-size:13px;display:none;"
+                    onchange="majHoraire(this)">
+              <option value="">-- Pas de service --</option>
+              {% for b in bulletins_jsjv %}
+              <option value="{{ b.id }}"
+                      data-debut="{{ b.heure_debut }}"
+                      data-fin="{{ b.heure_fin }}">
+                Service {{ b.numero|stringformat:"02d" }}
+                &nbsp;({{ b.heure_debut }} → {{ b.heure_fin }})
+              </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td style="padding:10px 16px;font-size:13px;color:#555;"
+              id="horaire_{{ forloop.counter }}">
+            —
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" style="padding:20px;text-align:center;color:#999;">
+            Aucun conducteur actif trouvé.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Boutons -->
+  <div style="display:flex;gap:12px;align-items:center;">
+    <button type="submit"
+            style="background:#28a745;color:white;border:none;
+                   padding:12px 28px;border-radius:4px;
+                   font-size:14px;font-weight:bold;cursor:pointer;">
+      &#10003; Enregistrer les affectations
+    </button>
+    <a href="{% url 'admin:gestion_affectation_changelist' %}"
+       style="color:#417690;font-size:14px;text-decoration:none;">
+      Annuler
+    </a>
+  </div>
+
+</form>
+{% endif %}
+
+<script>
+function filtrerBulletins(type) {
+  var selsJo   = document.querySelectorAll('.sel-jo');
+  var selsJsjv = document.querySelectorAll('.sel-jsjv');
+
+  if (type === 'JO') {
+    selsJo.forEach(function(s)   { s.style.display = 'block'; s.disabled = false; });
+    selsJsjv.forEach(function(s) { s.style.display = 'none';  s.disabled = true;  });
+  } else {
+    selsJo.forEach(function(s)   { s.style.display = 'none';  s.disabled = true;  });
+    selsJsjv.forEach(function(s) { s.style.display = 'block'; s.disabled = false; });
+  }
+
+  // Réinitialiser les horaires
+  document.querySelectorAll('[id^="horaire_"]').forEach(function(el) {
+    el.textContent = '—';
+  });
+}
+
+function majHoraire(select) {
+  var idx    = select.getAttribute('data-idx');
+  var opt    = select.options[select.selectedIndex];
+  var cell   = document.getElementById('horaire_' + idx);
+  var debut  = opt.getAttribute('data-debut');
+  var fin    = opt.getAttribute('data-fin');
+  if (debut && fin) {
+    cell.innerHTML = '<strong>' + debut + '</strong> → <strong>' + fin + '</strong>';
+    cell.style.color = '#155724';
+  } else {
+    cell.textContent = '—';
+    cell.style.color = '#999';
+  }
+}
+
+// Désactiver les selects JS/JV au chargement (JO par défaut)
+document.addEventListener('DOMContentLoaded', function() {
+  filtrerBulletins('JO');
+});
+</script>
+{% endblock %}
