@@ -19,7 +19,7 @@ from .serializers import (
     NotificationSerializer, MonBulletinSerializer,
     SignalerAbsenceSerializer, HistoriqueSerializer
 )
-from .permissions import IsAdmin, IsIngenieur, IsSuperviseurOrIngenieur, IsPCC
+from .permissions import IsAdmin, IsIngenieur, IsSuperviseurOrIngenieur, IsPCC, IsConducteur
 from .utils import envoyer_notification, enregistrer_historique, importer_bulletins_excel
 
 
@@ -37,6 +37,8 @@ class AuthViewSet(viewsets.ViewSet):
         )
         if not user:
             return Response({'detail': 'Matricule ou mot de passe incorrect.'}, status=401)
+        if not user.is_active:
+            return Response({'detail': 'Compte désactivé.'}, status=403)
         refresh = RefreshToken.for_user(user)
         return Response({
             'access':      str(refresh.access_token),
@@ -62,7 +64,6 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def update_fcm_token(self, request):
-        """Flutter appelle cet endpoint au démarrage pour enregistrer son token FCM."""
         s = FCMTokenSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         request.user.fcm_token = s.validated_data['fcm_token']
@@ -82,16 +83,17 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = serializer.save()
         enregistrer_historique(self.request.user, 'Création compte',
-                               'Utilisateur', user.id, {'matricule': user.matricule, 'role': user.role})
+                               'Utilisateur', user.id,
+                               {'matricule': user.matricule, 'role': user.role})
 
     def perform_destroy(self, instance):
         enregistrer_historique(self.request.user, 'Suppression compte',
-                               'Utilisateur', instance.id, {'matricule': instance.matricule})
+                               'Utilisateur', instance.id,
+                               {'matricule': instance.matricule})
         instance.delete()
 
     @action(detail=True, methods=['patch'])
     def changer_role(self, request, pk=None):
-        """Endpoint dédié modification de rôle — fiche 5.3."""
         user = self.get_object()
         nouveau_role = request.data.get('role')
         roles_valides = [r[0] for r in Utilisateur.ROLE_CHOICES]
@@ -106,7 +108,9 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def conducteurs(self, request):
-        qs = Utilisateur.objects.filter(role=Utilisateur.CONDUCTEUR, is_active=True).order_by('nom')
+        qs = Utilisateur.objects.filter(
+            role=Utilisateur.CONDUCTEUR, is_active=True
+        ).order_by('nom')
         return Response(UtilisateurSerializer(qs, many=True).data)
 
 
@@ -114,8 +118,10 @@ class BulletinViewSet(viewsets.ModelViewSet):
     queryset = Bulletin.objects.all().order_by('type_jour', 'numero')
 
     def get_permissions(self):
+        # ✅ FIX : les conducteurs n'ont pas accès à la liste des bulletins
+        # Ils utilisent exclusivement /conducteur/mon_bulletin/
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [permissions.IsAuthenticated(), IsSuperviseurOrIngenieur()]
         return [permissions.IsAuthenticated(), IsIngenieur()]
 
     def get_serializer_class(self):
@@ -128,6 +134,8 @@ class BulletinViewSet(viewsets.ModelViewSet):
         fichier = request.FILES.get('fichier')
         if not fichier:
             return Response({'detail': 'Aucun fichier fourni.'}, status=400)
+        if not fichier.name.endswith('.xlsx'):
+            return Response({'detail': 'Format invalide — fichier .xlsx requis.'}, status=400)
         try:
             rapport = importer_bulletins_excel(fichier, request.user)
             enregistrer_historique(request.user, 'Import bulletins Excel', 'Bulletin', None,
@@ -155,13 +163,15 @@ class RameViewSet(viewsets.ModelViewSet):
 
 
 class AffectationViewSet(viewsets.ModelViewSet):
-    queryset = Affectation.objects.select_related('conducteur', 'bulletin', 'rame').all()
+    queryset = Affectation.objects.select_related(
+        'conducteur', 'bulletin', 'rame'
+    ).all()
 
     def get_permissions(self):
         if self.action in ['confirmer', 'signaler_absence']:
             return [permissions.IsAuthenticated()]
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [permissions.IsAuthenticated(), IsSuperviseurOrIngenieur()]
         return [permissions.IsAuthenticated(), IsPCC()]
 
     def get_serializer_class(self):
@@ -187,12 +197,15 @@ class AffectationViewSet(viewsets.ModelViewSet):
         envoyer_notification(
             aff.conducteur, Notification.AFFECTATION,
             'Nouveau bulletin affecté',
-            f'Bulletin {aff.bulletin.numero} le {aff.date_service}.'
+            f'Vous avez été affecté au service {aff.bulletin.numero} '
+            f'le {aff.date_service}. '
+            f'Prise de service à {aff.bulletin.heure_debut.strftime("%H:%M")}.'
         )
 
     @action(detail=True, methods=['post'])
     def confirmer(self, request, pk=None):
         aff = self.get_object()
+        # ✅ FIX : seul le conducteur concerné peut confirmer
         if aff.conducteur != request.user:
             return Response({'detail': 'Non autorisé.'}, status=403)
         if aff.confirme:
@@ -208,15 +221,16 @@ class AffectationViewSet(viewsets.ModelViewSet):
                 f'{request.user.nom} {request.user.prenom} — Bulletin '
                 f'{aff.bulletin.numero} à {aff.heure_confirmation.strftime("%H:%M")}.'
             )
-        return Response({'detail': 'Confirmé.', 'heure': str(aff.heure_confirmation)})
+        return Response({
+            'detail': 'Prise de service confirmée.',
+            'heure':  aff.heure_confirmation.strftime("%H:%M"),
+        })
 
     @action(detail=True, methods=['post'])
     def signaler_absence(self, request, pk=None):
-        """✅ NOUVEAU — fiche 5.19 / exigence non-confirmation."""
         aff = self.get_object()
-        # Le conducteur lui-même ou un superviseur peut signaler
-        est_conducteur   = aff.conducteur == request.user
-        est_superviseur  = request.user.role in ['superviseur', 'ingenieur', 'admin']
+        est_conducteur  = aff.conducteur == request.user
+        est_superviseur = request.user.role in ['superviseur', 'ingenieur', 'admin']
         if not (est_conducteur or est_superviseur):
             return Response({'detail': 'Non autorisé.'}, status=403)
 
@@ -229,7 +243,6 @@ class AffectationViewSet(viewsets.ModelViewSet):
             aff.heure_retard = timezone.now()
         aff.save()
 
-        # Notifier superviseurs
         for sup in Utilisateur.objects.filter(role='superviseur', is_active=True):
             envoyer_notification(
                 sup, Notification.ABSENCE,
@@ -243,9 +256,10 @@ class AffectationViewSet(viewsets.ModelViewSet):
                                {'conducteur': aff.conducteur.matricule})
         return Response(AffectationSerializer(aff).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsPCC])
+    @action(detail=True, methods=['post'],
+            permission_classes=[permissions.IsAuthenticated, IsPCC])
     def affecter_rame(self, request, pk=None):
-        aff    = self.get_object()
+        aff     = self.get_object()
         rame_id = request.data.get('rame_id')
         if not rame_id:
             return Response({'detail': 'rame_id requis.'}, status=400)
@@ -264,13 +278,15 @@ class AffectationViewSet(viewsets.ModelViewSet):
         envoyer_notification(
             aff.conducteur, Notification.AFFECTATION,
             'Rame affectée',
-            f'Rame {rame.numero} pour le {aff.date_service}.'
+            f'Rame {rame.numero} assignée pour votre service du {aff.date_service}.'
         )
         return Response(AffectationSerializer(aff).data)
 
 
 class PermutationViewSet(viewsets.ModelViewSet):
-    queryset         = Permutation.objects.select_related('demandeur', 'cible', 'traite_par').all()
+    queryset         = Permutation.objects.select_related(
+        'demandeur', 'cible', 'traite_par'
+    ).all()
     serializer_class = PermutationSerializer
 
     def get_queryset(self):
@@ -288,7 +304,8 @@ class PermutationViewSet(viewsets.ModelViewSet):
         envoyer_notification(
             d.cible, Notification.PERMUTATION,
             'Demande de permutation',
-            f'{d.demandeur.nom} vous demande une permutation le {d.date_service}.'
+            f'{d.demandeur.nom} {d.demandeur.prenom} vous demande '
+            f'une permutation le {d.date_service}.'
         )
         for sup in Utilisateur.objects.filter(role='superviseur', is_active=True):
             envoyer_notification(
@@ -333,11 +350,16 @@ class PermutationViewSet(viewsets.ModelViewSet):
             p.save()
 
             if decision == 'accepter':
-                ad = Affectation.objects.filter(conducteur=p.demandeur, date_service=p.date_service).first()
-                ac = Affectation.objects.filter(conducteur=p.cible,     date_service=p.date_service).first()
+                ad = Affectation.objects.filter(
+                    conducteur=p.demandeur, date_service=p.date_service
+                ).first()
+                ac = Affectation.objects.filter(
+                    conducteur=p.cible, date_service=p.date_service
+                ).first()
                 if ad and ac:
                     ad.bulletin, ac.bulletin = ac.bulletin, ad.bulletin
-                    ad.save(); ac.save()
+                    ad.save()
+                    ac.save()
 
         msg = 'acceptée' if decision == 'accepter' else f'refusée ({p.motif_refus})'
         for c in [p.demandeur, p.cible]:
@@ -349,29 +371,111 @@ class PermutationViewSet(viewsets.ModelViewSet):
         return Response(PermutationSerializer(p).data)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  ConducteurViewSet  — ✅ AMÉLIORÉ
+#  Endpoint principal pour l'app Flutter conducteur
+# ══════════════════════════════════════════════════════════════════════════════
+
 class ConducteurViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     @action(detail=False, methods=['get'])
     def mon_bulletin(self, request):
+        """
+        Retourne le bulletin complet du conducteur connecté pour une date donnée.
+        Inclut : infos service, toutes les courses, rame affectée, statut.
+
+        Paramètre optionnel : ?date=YYYY-MM-DD (défaut : aujourd'hui)
+
+        Exemple réponse :
+        {
+          "affectation_id": 12,
+          "date_service": "2026-03-27",
+          "statut_service": "en_attente",
+          "confirme": false,
+          "heure_confirmation": null,
+          "rame": "R05",
+          "bulletin": {
+            "id": 3,
+            "numero": 11,
+            "type_jour": "JO",
+            "type_jour_display": "Jour Ouvrable",
+            "heure_debut": "06:35:00",
+            "heure_fin": "14:35:00",
+            "duree_minutes": 480,
+            "nb_courses": 10,
+            "courses": [
+              {
+                "id": 45,
+                "numero_course": "DEG BAM",
+                "origine": "Dépôt",
+                "destination": "ZOU2",
+                "heure_depart_prev": "07:00:00",
+                "heure_arrivee_prev": null,
+                "ordre": 0
+              },
+              ...
+            ]
+          }
+        }
+        """
         date_str = request.query_params.get('date', str(timezone.now().date()))
         try:
             date = datetime.date.fromisoformat(date_str)
         except ValueError:
             return Response({'detail': 'Format date invalide (YYYY-MM-DD).'}, status=400)
+
         aff = Affectation.objects.filter(
-            conducteur=request.user, date_service=date
-        ).select_related('bulletin', 'rame').first()
+            conducteur=request.user,
+            date_service=date
+        ).select_related('bulletin', 'rame').prefetch_related('bulletin__courses').first()
+
         if not aff:
-            return Response({'detail': 'Aucun bulletin pour cette date.'}, status=404)
+            return Response(
+                {'detail': f'Aucun bulletin pour le {date_str}.'},
+                status=404
+            )
+
+        bulletin = aff.bulletin
+        courses  = bulletin.courses.order_by('ordre')
+
+        # Calcul durée en minutes
+        def _to_minutes(t):
+            return t.hour * 60 + t.minute if t else None
+
+        debut_min = _to_minutes(bulletin.heure_debut)
+        fin_min   = _to_minutes(bulletin.heure_fin)
+        duree     = (fin_min - debut_min) if (debut_min is not None and fin_min is not None) else None
+
         return Response({
-            'affectation_id':    aff.id,
-            'date_service':      str(date),
-            'statut_service':    aff.statut_service,
-            'confirme':          aff.confirme,
-            'heure_confirmation': str(aff.heure_confirmation) if aff.heure_confirmation else None,
-            'rame':              aff.rame.numero if aff.rame else None,
-            'bulletin':          MonBulletinSerializer(aff.bulletin).data,
+            'affectation_id':     aff.id,
+            'date_service':       str(date),
+            'statut_service':     aff.statut_service,
+            'confirme':           aff.confirme,
+            'heure_confirmation': aff.heure_confirmation.strftime("%H:%M") if aff.heure_confirmation else None,
+            'rame':               aff.rame.numero if aff.rame else None,
+            'bulletin': {
+                'id':               bulletin.id,
+                'numero':           bulletin.numero,
+                'type_jour':        bulletin.type_jour,
+                'type_jour_display': bulletin.get_type_jour_display(),
+                'heure_debut':      bulletin.heure_debut.strftime("%H:%M"),
+                'heure_fin':        bulletin.heure_fin.strftime("%H:%M"),
+                'duree_minutes':    duree,
+                'nb_courses':       courses.count(),
+                'courses': [
+                    {
+                        'id':                c.id,
+                        'numero_course':     c.numero_course,
+                        'origine':           c.origine,
+                        'destination':       c.destination,
+                        'heure_depart_prev': c.heure_depart_prev.strftime("%H:%M"),
+                        'heure_arrivee_prev': c.heure_arrivee_prev.strftime("%H:%M") if c.heure_arrivee_prev else None,
+                        'ordre':             c.ordre,
+                    }
+                    for c in courses
+                ],
+            }
         })
 
     @action(detail=False, methods=['get'])
@@ -379,14 +483,21 @@ class ConducteurViewSet(viewsets.ViewSet):
         notifs = Notification.objects.filter(
             destinataire=request.user
         ).order_by('lu', '-date_envoi')[:50]
-        return Response(NotificationSerializer(notifs, many=True).data)
+        # ✅ Retourner aussi le nombre non lus
+        non_lus = notifs.filter(lu=False).count()
+        return Response({
+            'non_lus': non_lus,
+            'notifications': NotificationSerializer(notifs, many=True).data,
+        })
 
     @action(detail=False, methods=['post'],
             url_path='notifications/(?P<notif_id>[^/.]+)/lire')
     def marquer_lu(self, request, notif_id=None):
         try:
             n = Notification.objects.get(pk=notif_id, destinataire=request.user)
-            n.lu = True; n.date_lecture = timezone.now(); n.save()
+            n.lu = True
+            n.date_lecture = timezone.now()
+            n.save()
             return Response({'detail': 'Lu.'})
         except Notification.DoesNotExist:
             return Response({'detail': 'Introuvable.'}, status=404)
@@ -395,7 +506,11 @@ class ConducteurViewSet(viewsets.ViewSet):
     def mes_permutations(self, request):
         qs = (Permutation.objects.filter(demandeur=request.user) |
               Permutation.objects.filter(cible=request.user))
-        return Response(PermutationSerializer(qs.distinct().order_by('-date_demande'), many=True).data)
+        return Response(
+            PermutationSerializer(
+                qs.distinct().order_by('-date_demande'), many=True
+            ).data
+        )
 
 
 class SuperviseurViewSet(viewsets.ViewSet):
@@ -414,12 +529,12 @@ class SuperviseurViewSet(viewsets.ViewSet):
         data = [{
             'conducteur':         UtilisateurSerializer(a.conducteur).data,
             'bulletin':           a.bulletin.numero,
-            'heure_debut':        str(a.bulletin.heure_debut),
-            'heure_fin':          str(a.bulletin.heure_fin),
+            'heure_debut':        a.bulletin.heure_debut.strftime("%H:%M"),
+            'heure_fin':          a.bulletin.heure_fin.strftime("%H:%M"),
             'rame':               a.rame.numero if a.rame else None,
             'statut_service':     a.statut_service,
             'confirme':           a.confirme,
-            'heure_confirmation': str(a.heure_confirmation) if a.heure_confirmation else None,
+            'heure_confirmation': a.heure_confirmation.strftime("%H:%M") if a.heure_confirmation else None,
         } for a in affs]
         return Response({'date': str(date), 'total': len(data), 'conducteurs': data})
 

@@ -1,0 +1,184 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block content %}
+
+{# ── En-tête service style Excel ───────────────────────────────────────────── #}
+<div style="margin-bottom:24px;">
+
+  {# Bande rouge titre #}
+  <div style="background:#C00000;color:#fff;padding:14px 20px;border-radius:6px 6px 0 0;
+              display:flex;align-items:center;justify-content:space-between;">
+    <span style="font-size:26px;font-weight:bold;letter-spacing:1px;">
+      SERVICE &nbsp; {{ original.numero }}
+    </span>
+    <span style="font-size:13px;opacity:.85;">
+      {{ original.get_type_jour_display }}
+    </span>
+  </div>
+
+  {# Bande rouge secondaire : heures #}
+  <div style="background:#E53935;color:#fff;padding:8px 20px;
+              display:flex;gap:40px;font-size:14px;">
+    <span><strong>Prise de service :</strong> {{ original.heure_debut|time:"H:i" }}</span>
+    <span><strong>Fin de service :</strong>   {{ original.heure_fin|time:"H:i"   }}</span>
+    <span><strong>Importé par :</strong>       {{ original.importe_par }}</span>
+    <span><strong>Date import :</strong>       {{ original.date_import|date:"d/m/Y H:i" }}</span>
+  </div>
+
+  {# Tableau des courses #}
+  <table style="width:100%;border-collapse:collapse;font-size:13px;
+                border:1px solid #ddd;background:#fff;">
+    <thead>
+      <tr style="background:#F2F2F2;">
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;width:60px;">#</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;">Course</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;">Origine</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;">Heure départ</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;">Destination</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;">Heure arrivée</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;background:#FFF9C4;">Retard dép.</th>
+        <th style="padding:8px 10px;border:1px solid #ccc;text-align:center;background:#FFF9C4;">Retard arr.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for course in original.courses.all %}
+      <tr style="background:{% if forloop.counter|divisibleby:2 %}#FFF8F8{% else %}#ffffff{% endif %};">
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;
+                   color:#888;font-size:11px;">{{ forloop.counter }}</td>
+
+        {# Numéro de course — badge rouge si renseigné #}
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;">
+          {% if course.numero_course %}
+            <span style="background:#FFEBEE;color:#B71C1C;padding:2px 10px;
+                         border-radius:20px;font-weight:bold;font-size:12px;">
+              {{ course.numero_course }}
+            </span>
+          {% else %}
+            <span style="color:#ccc;">—</span>
+          {% endif %}
+        </td>
+
+        {# Origine — Dépôt en vert #}
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;font-weight:bold;">
+          {% if course.origine == "Dépôt" or course.origine == "dépôt" or course.origine == "depot" %}
+            <span style="color:#2E7D32;">{{ course.origine }}</span>
+          {% else %}
+            {{ course.origine }}
+          {% endif %}
+        </td>
+
+        {# Heure départ #}
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;">
+          <span style="background:#FFEBEE;color:#C62828;padding:3px 10px;
+                       border-radius:6px;font-weight:bold;">
+            {{ course.heure_depart_prev|time:"H:i" }}
+          </span>
+        </td>
+
+        {# Destination #}
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;font-weight:bold;">
+          {{ course.destination }}
+        </td>
+
+        {# Heure arrivée #}
+        <td style="padding:7px 10px;border:1px solid #eee;text-align:center;">
+          {% if course.heure_arrivee_prev %}
+            <span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;
+                         border-radius:6px;font-weight:bold;">
+              {{ course.heure_arrivee_prev|time:"H:i" }}
+            </span>
+          {% else %}
+            <span style="color:#ccc;">—</span>
+          {% endif %}
+        </td>
+
+        {# Colonnes retard — vides (à remplir sur terrain) #}
+        <td style="padding:7px 10px;border:1px solid #eee;background:#FFFDE7;text-align:center;
+                   color:#ccc;font-size:11px;">—</td>
+        <td style="padding:7px 10px;border:1px solid #eee;background:#FFFDE7;text-align:center;
+                   color:#ccc;font-size:11px;">—</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8" style="padding:20px;text-align:center;color:#888;
+                                border:1px solid #eee;">
+          Aucune course importée pour ce bulletin.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="background:#F5F5F5;">
+        <td colspan="8" style="padding:8px 14px;border:1px solid #ddd;
+                                font-size:12px;color:#666;">
+          <strong>{{ original.courses.count }}</strong> course(s) au total
+          &nbsp;·&nbsp;
+          Fichier source : <em>{{ original.fichier_source|default:"—" }}</em>
+        </td>
+      </tr>
+    </tfoot>
+  </table>
+
+  {# ── Affectations du jour ──────────────────────────────────────────────── #}
+  {% with affectations=original.affectations.all %}
+  {% if affectations %}
+  <div style="margin-top:20px;">
+    <h3 style="font-size:14px;color:#417690;margin-bottom:10px;">
+      Conducteurs affectés à ce bulletin
+    </h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #ddd;">
+      <thead>
+        <tr style="background:#E3F2FD;">
+          <th style="padding:7px 12px;border:1px solid #ccc;text-align:left;">Conducteur</th>
+          <th style="padding:7px 12px;border:1px solid #ccc;text-align:center;">Date service</th>
+          <th style="padding:7px 12px;border:1px solid #ccc;text-align:center;">Rame</th>
+          <th style="padding:7px 12px;border:1px solid #ccc;text-align:center;">Statut</th>
+          <th style="padding:7px 12px;border:1px solid #ccc;text-align:center;">Confirmé à</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for aff in affectations %}
+        <tr>
+          <td style="padding:7px 12px;border:1px solid #eee;">
+            <strong>{{ aff.conducteur.nom }} {{ aff.conducteur.prenom }}</strong>
+            <span style="color:#888;font-size:11px;"> — {{ aff.conducteur.matricule }}</span>
+          </td>
+          <td style="padding:7px 12px;border:1px solid #eee;text-align:center;">
+            {{ aff.date_service|date:"d/m/Y" }}
+          </td>
+          <td style="padding:7px 12px;border:1px solid #eee;text-align:center;">
+            {{ aff.rame.numero|default:"—" }}
+          </td>
+          <td style="padding:7px 12px;border:1px solid #eee;text-align:center;">
+            {% if aff.statut_service == 'confirme' %}
+              <span style="background:#E8F5E9;color:#2E7D32;padding:2px 10px;border-radius:20px;">✓ Confirmé</span>
+            {% elif aff.statut_service == 'absent' %}
+              <span style="background:#FFEBEE;color:#C62828;padding:2px 10px;border-radius:20px;">✗ Absent</span>
+            {% elif aff.statut_service == 'retard' %}
+              <span style="background:#FFF8E1;color:#E65100;padding:2px 10px;border-radius:20px;">⚠ Retard</span>
+            {% else %}
+              <span style="background:#F5F5F5;color:#666;padding:2px 10px;border-radius:20px;">En attente</span>
+            {% endif %}
+          </td>
+          <td style="padding:7px 12px;border:1px solid #eee;text-align:center;font-size:12px;">
+            {% if aff.heure_confirmation %}
+              {{ aff.heure_confirmation|time:"H:i" }}
+            {% else %}
+              <span style="color:#ccc;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endwith %}
+
+</div>
+
+{# ── Formulaire Django standard en dessous ─────────────────────────────────── #}
+{{ block.super }}
+
+{% endblock %}
