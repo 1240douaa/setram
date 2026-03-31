@@ -136,7 +136,11 @@
       </thead>
       <tbody>
         {% for conducteur in conducteurs %}
-        <tr style="border-bottom:1px solid #f0f0f0;{% if forloop.counter|divisibleby:2 %}background:white;{% else %}background:#fafafa;{% endif %}">
+        {% if forloop.counter|divisibleby:2 %}
+          <tr style="border-bottom:1px solid #f0f0f0;background:white;">
+        {% else %}S
+          <tr style="border-bottom:1px solid #f0f0f0;background:#fafafa;">
+        {% endif %}
           <td style="padding:10px 16px;color:#999;font-size:12px;">
             {{ forloop.counter }}
           </td>

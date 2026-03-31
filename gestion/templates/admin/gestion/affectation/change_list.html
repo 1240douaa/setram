@@ -1,0 +1,117 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block content %}
+
+{# ── Barre d'outils ── #}
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+
+  <a href="affecter/"
+     style="background:#417690;color:#fff;padding:8px 18px;border-radius:4px;
+            font-size:13px;font-weight:bold;text-decoration:none;">
+    &#10010; Affecter les conducteurs
+  </a>
+
+  <span style="margin-left:auto;font-size:13px;color:#666;">
+    {{ affectations_data|length }} affectation(s) affichée(s)
+  </span>
+</div>
+
+{# ── Cartes affectations ── #}
+{% if affectations_data %}
+
+  {% for item in affectations_data %}
+  {% with aff=item.aff %}
+
+  <div style="background:#fff;border:1px solid #ddd;border-radius:6px;
+              margin-bottom:24px;overflow:hidden;
+              box-shadow:0 2px 6px rgba(0,0,0,.08);">
+
+    {# ── En-tête conducteur ── #}
+    <div style="background:#417690;color:#fff;padding:12px 18px;
+                display:flex;align-items:center;justify-content:space-between;
+                flex-wrap:wrap;gap:10px;">
+
+      <div style="display:flex;align-items:center;gap:16px;">
+        {# Avatar initiales #}
+        <div style="background:rgba(255,255,255,.2);width:44px;height:44px;
+                    border-radius:50%;display:flex;align-items:center;
+                    justify-content:center;font-size:18px;font-weight:bold;">
+          {{ aff.conducteur.nom|slice:":1" }}{{ aff.conducteur.prenom|slice:":1" }}
+        </div>
+        <div>
+          <div style="font-size:16px;font-weight:bold;">
+            {{ aff.conducteur.nom }} {{ aff.conducteur.prenom }}
+          </div>
+          <div style="font-size:12px;opacity:.85;">
+            Matricule : {{ aff.conducteur.matricule }}
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        {# Date service #}
+        <div style="background:rgba(255,255,255,.15);padding:6px 14px;
+                    border-radius:20px;font-size:13px;">
+          📅 {{ aff.date_service|date:"d/m/Y" }}
+        </div>
+
+        {# Rame #}
+        {% if aff.rame %}
+        <div style="background:rgba(255,255,255,.15);padding:6px 14px;
+                    border-radius:20px;font-size:13px;">
+          🚋 Rame {{ aff.rame.numero }}
+        </div>
+        {% endif %}
+
+        {# Badge statut #}
+        <span style="background-color:'{{ item.statut_color }}';color:#fff;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:bold;display:inline-block;">
+          {{ item.statut_label }}
+        </span>
+
+        {# Lien modifier #}
+        <a href="{% url 'admin:gestion_affectation_change' aff.pk %}"
+           style="background:rgba(255,255,255,.2);color:#fff;padding:6px 14px;
+                  border-radius:4px;font-size:12px;text-decoration:none;
+                  font-weight:bold;border:1px solid rgba(255,255,255,.4);">
+          ✏ Modifier
+        </a>
+      </div>
+    </div>
+
+    {# ── Bulletin style Excel ── #}
+    <div style="padding:16px;overflow-x:auto;">
+      {{ item.bulletin_html|safe }}
+    </div>
+
+    {# ── Pied de carte : infos complémentaires ── #}
+    <div style="background:#f8f8f8;border-top:1px solid #eee;
+                padding:8px 18px;font-size:12px;color:#666;
+                display:flex;gap:24px;flex-wrap:wrap;">
+      <span>Affecté par : <strong>
+        {% if aff.affecte_par %}{{ aff.affecte_par.nom }} {{ aff.affecte_par.prenom }}{% else %}—{% endif %}
+      </strong></span>
+      <span>Date affectation : <strong>{{ aff.date_affectation|date:"d/m/Y H:i" }}</strong></span>
+      {% if aff.heure_confirmation %}
+      <span>Confirmé à : <strong>{{ aff.heure_confirmation|time:"H:i" }}</strong></span>
+      {% endif %}
+      {% if aff.motif_absence %}
+      <span style="color:#c0392b;">Motif absence : <strong>{{ aff.motif_absence }}</strong></span>
+      {% endif %}
+    </div>
+
+  </div>
+  {% endwith %}
+  {% endfor %}
+
+{% else %}
+  <div style="background:#fff3e0;border-left:4px solid #ff9800;
+              padding:16px 20px;border-radius:4px;font-size:14px;">
+    <strong>Aucune affectation trouvée.</strong>
+    <a href="affecter/" style="color:#e65100;margin-left:8px;">
+      Affecter les conducteurs →
+    </a>
+  </div>
+{% endif %}
+
+{% endblock %}

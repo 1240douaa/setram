@@ -322,14 +322,36 @@ class PermutationViewSet(viewsets.ModelViewSet):
         decision = request.data.get('decision')
         if decision not in ['accepter', 'refuser']:
             return Response({'detail': 'decision invalide.'}, status=400)
+
         p.cible_accepte = (decision == 'accepter')
-        p.save()
-        envoyer_notification(
-            p.demandeur, Notification.PERMUTATION,
-            'Réponse à votre demande',
-            f'{request.user.nom} a {"accepté" if p.cible_accepte else "refusé"} '
-            f'votre demande du {p.date_service}.'
-        )
+
+        with transaction.atomic():
+            if decision == 'accepter':
+                p.statut          = Permutation.ACCEPTEE
+                p.traite_par      = request.user
+                p.date_traitement = timezone.now()
+                p.save()
+
+                if not p.appliquer_echange_bulletins():
+                    return Response(
+                        {'detail': 'Les deux conducteurs doivent avoir une affectation pour cette date ou les bulletins sont déjà échangés.'},
+                        status=400
+                    )
+            else:
+                p.statut          = Permutation.REFUSEE
+                p.traite_par      = request.user
+                p.date_traitement = timezone.now()
+                p.save()
+
+        msg = 'acceptée' if decision == 'accepter' else 'refusée'
+        for c in [p.demandeur, p.cible]:
+            envoyer_notification(c, Notification.PERMUTATION,
+                                 'Décision permutation',
+                                 f'Votre permutation du {p.date_service} a été {msg}.')
+
+        enregistrer_historique(request.user, f'Permutation {decision}e',
+                               'Permutation', p.id, {'decision': decision})
+
         return Response(PermutationSerializer(p).data)
 
     @action(detail=True, methods=['post'],
@@ -344,6 +366,7 @@ class PermutationViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             p.statut          = Permutation.ACCEPTEE if decision == 'accepter' else Permutation.REFUSEE
+            p.cible_accepte   = True if decision == 'accepter' else False
             p.traite_par      = request.user
             p.motif_refus     = s.validated_data.get('motif_refus', '')
             p.date_traitement = timezone.now()
@@ -356,10 +379,19 @@ class PermutationViewSet(viewsets.ModelViewSet):
                 ac = Affectation.objects.filter(
                     conducteur=p.cible, date_service=p.date_service
                 ).first()
-                if ad and ac:
+
+                if not ad or not ac:
+                    raise serializers.ValidationError(
+                        'Les deux conducteurs doivent avoir une affectation pour cette date.'
+                    )
+
+                # Permuter les bulletins des affectations sur la même date.
+                if not p.bulletins_echanges:
                     ad.bulletin, ac.bulletin = ac.bulletin, ad.bulletin
                     ad.save()
                     ac.save()
+                    p.bulletins_echanges = True
+                    p.save()
 
         msg = 'acceptée' if decision == 'accepter' else f'refusée ({p.motif_refus})'
         for c in [p.demandeur, p.cible]:

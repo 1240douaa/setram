@@ -176,13 +176,39 @@ class Permutation(models.Model):
         Utilisateur, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='permutations_traitees'
     )
-    motif_refus     = models.TextField(blank=True)
-    cible_accepte   = models.BooleanField(null=True)
-    date_demande    = models.DateTimeField(auto_now_add=True)
-    date_traitement = models.DateTimeField(null=True, blank=True)
+    motif_refus       = models.TextField(blank=True)
+    cible_accepte     = models.BooleanField(null=True)
+    bulletins_echanges = models.BooleanField(default=False)
+    date_demande      = models.DateTimeField(auto_now_add=True)
+    date_traitement   = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-date_demande']
+
+    def appliquer_echange_bulletins(self):
+        """Échange les bulletins des deux affectations liées à cette permutation."""
+        if self.statut != self.ACCEPTEE or not self.cible_accepte or self.bulletins_echanges:
+            return False
+
+        ad = Affectation.objects.filter(
+            conducteur=self.demandeur,
+            date_service=self.date_service
+        ).first()
+        ac = Affectation.objects.filter(
+            conducteur=self.cible,
+            date_service=self.date_service
+        ).first()
+
+        if not ad or not ac:
+            return False
+
+        ad.bulletin, ac.bulletin = ac.bulletin, ad.bulletin
+        ad.save()
+        ac.save()
+
+        self.bulletins_echanges = True
+        self.save(update_fields=['bulletins_echanges'])
+        return True
 
 
 class Notification(models.Model):

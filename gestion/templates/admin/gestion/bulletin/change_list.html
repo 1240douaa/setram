@@ -1,14 +1,234 @@
 {% extends "admin/change_list.html" %}
 {% load i18n %}
 
-{% block object-tools-items %}
-  <li>
-    <a href="{{ import_excel_url }}"
-       style="background:#2e7d32;color:#fff;padding:6px 14px;
-              border-radius:4px;font-size:13px;font-weight:bold;
-              text-decoration:none;display:inline-block">
-      ⬆ Importer Excel
-    </a>
-  </li>
-  {{ block.super }}
+{% block content %}
+
+<style>
+  .filter-btn {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    text-decoration: none;
+    background: #eee;
+    color: #333;
+    display: inline-block;
+  }
+  .filter-btn.active { background: #417690; color: #fff; }
+  .filter-btn[href*="JO"].active { background: #1565c0; }
+  .filter-btn[href*="JS_JV"].active { background: #6a1b9a; }
+
+  .course-row.even { background: #f9f9f9; }
+  .course-row.odd { background: #fff; }
+  .course-cell.has-number { background: #ffd700; color: #000; }
+  .course-cell.no-number { color: #ccc; }
+  .origin-cell.zou { background: #ff0000; color: #fff; }
+  .origin-cell.depot { color: #000; text-decoration: underline; }
+  .origin-cell.normal { color: #000; }
+  .depart-cell.last { background: #ff0000; color: #fff; }
+  .depart-cell.normal { color: #000; }
+</style>
+
+{# ── Barre d'outils (import + filtres) ── #}
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+  <a href="{{ import_excel_url }}"
+     style="background:#2e7d32;color:#fff;padding:8px 16px;border-radius:4px;
+            font-size:13px;font-weight:bold;text-decoration:none;display:inline-flex;
+            align-items:center;gap:6px;">
+    ⬆ Importer Excel
+  </a>
+
+  {# Filtre type jour #}
+  <div style="display:flex;gap:6px;align-items:center;">
+    <span style="font-size:13px;color:#555;font-weight:bold;">Filtre :</span>
+    <a href="?type_jour=" class="filter-btn {% if not request.GET.type_jour %}active{% endif %}">Tout</a>
+    <a href="?type_jour=JO" class="filter-btn {% if request.GET.type_jour == 'JO' %}active{% endif %}">Jour Ouvrable</a>
+    <a href="?type_jour=JS_JV" class="filter-btn {% if request.GET.type_jour == 'JS_JV' %}active{% endif %}">Samedi/Vendredi</a>
+  </div>
+
+  <span style="margin-left:auto;font-size:13px;color:#666;">
+    {{ bulletins|length }} bulletin(s) affiché(s)
+  </span>
+</div>
+
+{# ── Grille de bulletins ── #}
+{% if bulletins %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(580px,1fr));
+            gap:20px;margin-bottom:24px;">
+
+  {% for bulletin in bulletins %}
+  <div style="font-family:Arial,sans-serif;border:2px solid #555;
+              border-radius:2px;overflow:hidden;box-shadow:2px 2px 6px rgba(0,0,0,.15);">
+
+    {# ── En-tête rouge ── #}
+    <div style="display:flex;align-items:stretch;">
+
+      {# Bloc titre rouge #}
+      <div style="background:#ff0000;flex:1;display:flex;align-items:center;
+                  justify-content:flex-start;padding:6px 20px;min-height:72px;">
+        <span style="color:#fff;font-size:40px;font-weight:900;letter-spacing:2px;
+                     text-transform:lowercase;">
+          service {{ bulletin.numero|stringformat:"02d" }}
+        </span>
+      </div>
+
+      {# Bloc numéro + heures (droite) #}
+      <div style="display:flex;flex-direction:column;min-width:140px;">
+        <div style="background:#ffd700;display:flex;align-items:center;
+                    justify-content:space-between;padding:6px 12px;flex:1;
+                    border-left:2px solid #555;">
+          <span style="font-size:24px;font-weight:900;color:#000;">
+            {{ bulletin.numero|stringformat:"02d" }}
+          </span>
+          <span style="font-size:18px;font-weight:bold;color:#000;">
+            {% if bulletin.heure_debut %}{{ bulletin.heure_debut|time:"H:i" }}{% else %}--:--{% endif %}
+          </span>
+        </div>
+        <div style="background:#00b0a0;display:flex;align-items:center;
+                    justify-content:space-between;padding:6px 12px;flex:1;
+                    border-left:2px solid #555;border-top:1px solid #555;">
+          <span style="font-size:13px;font-weight:bold;color:#fff;">
+            {% if bulletin.type_jour == 'JO' %}JO{% else %}JS/JV{% endif %}
+          </span>
+          <span style="font-size:18px;font-weight:bold;color:#fff;">
+            {% if bulletin.heure_fin %}{{ bulletin.heure_fin|time:"H:i" }}{% else %}--:--{% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    {# ── Bandeau "Heures réelles" ── #}
+    <div style="background:#00b0a0;padding:5px 10px;border-top:1px solid #555;">
+      <span style="color:#fff;font-size:12px;font-weight:bold;">
+        Heures réelles de départ et d'arrivée
+      </span>
+    </div>
+
+    {# ── En-têtes colonnes ── #}
+    <div style="display:grid;
+                grid-template-columns:80px 90px 100px 110px 55px 110px 95px;
+                background:#00b0a0;border-top:1px solid #555;">
+      {% for h in headers %}
+      <div style="color:#fff;padding:5px 4px;font-size:10px;font-weight:bold;
+                  text-align:center;border-right:1px solid rgba(255,255,255,.35);
+                  display:flex;align-items:center;justify-content:center;min-height:32px;">
+        {{ h }}
+      </div>
+      {% endfor %}
+    </div>
+
+    {# ── Lignes courses ── #}
+    {% with courses=bulletin.courses.all %}
+    {% if courses %}
+      {% for course in courses %}
+      {% with i=forloop.counter0 last=forloop.last %}
+      <div class="course-row {% if i|divisibleby:2 %}even{% else %}odd{% endif %}" style="display:grid;
+                  grid-template-columns:80px 90px 100px 110px 55px 110px 95px;
+                  border-top:1px solid #ddd;">
+
+        {# Course (badge jaune si renseigné) #}
+        <div class="course-cell {% if course.numero_course %}has-number{% else %}no-number{% endif %}" style="padding:5px 6px;font-size:11px;font-weight:bold;
+                    border-right:1px solid #ddd;
+                    text-align:center;display:flex;align-items:center;justify-content:center;">
+          {{ course.numero_course|default:"" }}
+        </div>
+
+        {# Numéro rame (vide) #}
+        <div style="padding:5px 6px;border-right:1px solid #ddd;text-align:center;
+                    color:#ccc;font-size:11px;">—</div>
+
+        {# Origine — rouge si ZOU1/ZOU2 #}
+        <div class="origin-cell {% if course.origine == 'ZOU1' or course.origine == 'ZOU2' %}zou{% elif course.origine == 'Dépôt' or course.origine == 'depot' or course.origine == 'DEPOT' %}depot{% else %}normal{% endif %}" style="padding:5px 6px;font-size:12px;font-weight:bold;
+                    border-right:1px solid #ddd;text-align:center;
+                    display:flex;align-items:center;justify-content:center;">
+          {{ course.origine }}
+        </div>
+
+        {# Heure départ — rouge si dernière course #}
+        <div class="depart-cell {% if last %}last{% else %}normal{% endif %}" style="padding:5px 6px;font-size:12px;font-weight:bold;border-right:1px solid #ddd;text-align:center;display:flex;align-items:center;justify-content:center;">
+          {% if course.heure_depart_prev %}{{ course.heure_depart_prev|time:"H:i" }}{% else %}—{% endif %}
+        </div>
+
+        {# Retard (vide) #}
+        <div style="padding:5px 6px;border-right:1px solid #ddd;text-align:center;
+                    color:#ccc;font-size:11px;">—</div>
+
+        {# Destination #}
+        <div style="padding:5px 6px;font-size:12px;font-weight:bold;
+                    border-right:1px solid #ddd;text-align:center;color:#000;
+                    display:flex;align-items:center;justify-content:center;">
+          {{ course.destination }}
+        </div>
+
+        {# Heure arrivée #}
+        <div style="padding:5px 6px;font-size:11px;text-align:center;color:#555;
+                    display:flex;align-items:center;justify-content:center;">
+          {% if course.heure_arrivee_prev %}{{ course.heure_arrivee_prev|time:"H:i" }}{% else %}—{% endif %}
+        </div>
+
+      </div>
+      {% endwith %}
+      {% endfor %}
+    {% else %}
+      <div style="padding:14px;text-align:center;color:#999;
+                  font-style:italic;border-top:1px solid #eee;font-size:12px;">
+        Bulletin vide — aucune course
+      </div>
+    {% endif %}
+    {% endwith %}
+
+    {# ── Pied : lien modifier ── #}
+    <div style="background:#f5f5f5;border-top:1px solid #ddd;
+                padding:7px 12px;display:flex;justify-content:space-between;
+                align-items:center;">
+      <span style="font-size:11px;color:#666;">
+        {{ bulletin.courses.count }} course(s)
+        &nbsp;·&nbsp;
+        Importé le {{ bulletin.date_import|date:"d/m/Y" }}
+      </span>
+      <a href="{% url 'admin:gestion_bulletin_change' bulletin.pk %}"
+         style="background:#417690;color:#fff;padding:4px 12px;border-radius:3px;
+                font-size:12px;text-decoration:none;font-weight:bold;">
+        ✏ Modifier
+      </a>
+    </div>
+
+  </div>
+  {% endfor %}
+
+</div>
+
+{% else %}
+<div style="background:#fff3e0;border-left:4px solid #ff9800;padding:16px 20px;
+            border-radius:4px;font-size:14px;">
+  <strong>Aucun bulletin trouvé.</strong>
+  <a href="{{ import_excel_url }}" style="color:#e65100;margin-left:8px;">
+    Importer un fichier Excel →
+  </a>
+</div>
+{% endif %}
+
+{# ── Pagination ── #}
+{% if is_paginated %}
+<div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+  {% if page_obj.has_previous %}
+  <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.type_jour %}&type_jour={{ request.GET.type_jour }}{% endif %}"
+     style="padding:6px 14px;background:#417690;color:#fff;border-radius:4px;
+            text-decoration:none;font-size:13px;">
+    ← Précédent
+  </a>
+  {% endif %}
+  <span style="font-size:13px;color:#555;">
+    Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}
+  </span>
+  {% if page_obj.has_next %}
+  <a href="?page={{ page_obj.next_page_number }}{% if request.GET.type_jour %}&type_jour={{ request.GET.type_jour }}{% endif %}"
+     style="padding:6px 14px;background:#417690;color:#fff;border-radius:4px;
+            text-decoration:none;font-size:13px;">
+    Suivant →
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% endblock %}

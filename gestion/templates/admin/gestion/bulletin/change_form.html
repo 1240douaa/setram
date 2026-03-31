@@ -43,7 +43,11 @@
     </thead>
     <tbody>
       {% for course in original.courses.all %}
-      <tr style="background:{% if forloop.counter|divisibleby:2 %}#FFF8F8{% else %}#ffffff{% endif %};">
+      {% if forloop.counter|divisibleby:2 %}
+      <tr style="background:#FFF8F8;">
+      {% else %}
+      <tr style="background:#ffffff;">
+      {% endif %}
         <td style="padding:7px 10px;border:1px solid #eee;text-align:center;
                    color:#888;font-size:11px;">{{ forloop.counter }}</td>
 
